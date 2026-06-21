@@ -1,0 +1,62 @@
+replicaCount: 1
+
+image:
+  repository: us-central1-docker.pkg.dev/scotiapoc-migration-demo/migration-demo/nodejs-demoapp
+  tag: "run-20260621-014337"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 3000
+
+ingress:
+  enabled: true
+  className: nginx
+  host: nodejs-demoapp.atlas-prod.local
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Health probes — app has no dedicated /healthz; root route / returns HTTP 200
+probes:
+  readiness:
+    path: /
+    port: 3000
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    failureThreshold: 3
+  liveness:
+    path: /
+    port: 3000
+    initialDelaySeconds: 15
+    periodSeconds: 20
+    failureThreshold: 3
+
+hpa:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+
+# ConfigMap env vars (non-sensitive)
+config:
+  PORT: "3000"
+  NODE_ENV: "production"
+  REDIS_SESSION_HOST: "redis-master.atlas-prod.svc.cluster.local"
+
+# Secret name — created by implement_migration pre-deploy
+secretName: nodejs-demoapp-secrets
+
+podMonitor:
+  enabled: true
+  path: /metrics
+  port: 3000
+  interval: 30s

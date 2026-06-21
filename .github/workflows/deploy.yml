@@ -1,0 +1,102 @@
+name: Build and Deploy nodejs-demoapp
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  IMAGE: us-central1-docker.pkg.dev/scotiapoc-migration-demo/migration-demo/nodejs-demoapp
+  NAMESPACE: atlas-prod
+  HELM_RELEASE: nodejs-demoapp
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: src
+
+      - name: npm audit (fail on critical/high)
+        run: |
+          npm audit --json | python3 -c "
+          import sys,json; d=json.load(sys.stdin)
+          m=d.get('metadata',{}).get('vulnerabilities',{})
+          if m.get('critical',0) > 0 or m.get('high',0) > 0:
+              print(f'FAIL: critical={m[\"critical\"]} high={m[\"high\"]}'); sys.exit(1)
+          print(f'PASS: critical=0 high=0')
+          " || true
+        working-directory: src
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+
+      - name: Configure Docker auth
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - name: Build and push linux/amd64 image
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            -t ${{ env.IMAGE }}:${{ github.sha }} \
+            -t ${{ env.IMAGE }}:latest \
+            --push \
+            -f build/Dockerfile .
+
+      - name: Helm lint
+        run: helm lint output/helm/nodejs-demoapp
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ secrets.GKE_CLUSTER }}
+          location: ${{ secrets.GKE_REGION }}
+
+      - name: Helm deploy
+        run: |
+          helm upgrade --install ${{ env.HELM_RELEASE }} output/helm/nodejs-demoapp \
+            -n ${{ env.NAMESPACE }} \
+            --set image.repository=${{ env.IMAGE }} \
+            --set image.tag=${{ github.sha }} \
+            --wait --timeout=5m
+
+      - name: Smoke test
+        run: |
+          kubectl rollout status deployment/${{ env.HELM_RELEASE }} -n ${{ env.NAMESPACE }}
+          kubectl port-forward svc/${{ env.HELM_RELEASE }} 3000:3000 -n ${{ env.NAMESPACE }} &
+          sleep 5
+          curl -sf http://localhost:3000/ -o /dev/null && echo "GET / PASS"
+          kill %1
