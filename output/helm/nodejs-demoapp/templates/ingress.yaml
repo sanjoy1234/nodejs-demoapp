@@ -4,10 +4,8 @@ kind: Ingress
 metadata:
   name: {{ .Release.Name }}
   namespace: {{ .Release.Namespace }}
-  annotations:
-    {{- range $k, $v := .Values.ingress.annotations }}
-    {{ $k }}: {{ $v | quote }}
-    {{- end }}
+  labels:
+    app: {{ .Release.Name }}
 spec:
   ingressClassName: {{ .Values.ingress.className }}
   rules:
