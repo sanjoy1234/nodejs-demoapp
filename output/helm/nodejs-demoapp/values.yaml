@@ -1,8 +1,8 @@
-replicaCount: 1
+replicaCount: 2
 
 image:
   repository: us-central1-docker.pkg.dev/scotiapoc-migration-demo/migration-demo/nodejs-demoapp
-  tag: "run-20260621-014337"
+  tag: "4a04d97002aaeefd0d1254398f458e6a982fefd7"
   pullPolicy: IfNotPresent
 
 service:
@@ -12,51 +12,31 @@ service:
 ingress:
   enabled: true
   className: nginx
-  host: nodejs-demoapp.atlas-prod.local
-  annotations:
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+  host: nodejs-demoapp.atlas.scotiabank.internal
 
 resources:
   requests:
-    cpu: 250m
-    memory: 256Mi
+    memory: "256Mi"
+    cpu: "100m"
   limits:
-    cpu: 500m
-    memory: 512Mi
-
-# Health probes — app has no dedicated /healthz; root route / returns HTTP 200
-probes:
-  readiness:
-    path: /
-    port: 3000
-    initialDelaySeconds: 10
-    periodSeconds: 10
-    failureThreshold: 3
-  liveness:
-    path: /
-    port: 3000
-    initialDelaySeconds: 15
-    periodSeconds: 20
-    failureThreshold: 3
+    memory: "512Mi"
+    cpu: "500m"
 
 hpa:
   enabled: true
-  minReplicas: 1
+  minReplicas: 2
   maxReplicas: 5
-  targetCPUUtilizationPercentage: 70
+  targetCPUUtilizationPercentage: 50
 
-# ConfigMap env vars (non-sensitive)
-config:
-  PORT: "3000"
-  NODE_ENV: "production"
-  REDIS_SESSION_HOST: "redis-master.atlas-prod.svc.cluster.local"
+redis:
+  secretName: redis-secret
+  hostKey: REDIS_SESSION_HOST
 
-# Secret name — created by implement_migration pre-deploy
-secretName: nodejs-demoapp-secrets
+configMapName: app-config
 
 podMonitor:
   enabled: true
-  path: /metrics
   port: 3000
-  interval: 30s
+  path: /metrics
+
+terminationGracePeriodSeconds: 60

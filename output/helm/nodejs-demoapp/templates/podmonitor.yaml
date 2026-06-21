@@ -4,12 +4,16 @@ kind: PodMonitor
 metadata:
   name: {{ .Release.Name }}
   namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}
 spec:
   selector:
     matchLabels:
       app: {{ .Release.Name }}
   podMetricsEndpoints:
-    - path: {{ .Values.podMonitor.path }}
-      port: http
-      interval: {{ .Values.podMonitor.interval }}
+    - port: metrics
+      path: {{ .Values.podMonitor.path }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
 {{- end }}
